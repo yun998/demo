@@ -1,15 +1,22 @@
 package com.yun.spring;
 
+import com.yun.spring.annotations.Autowired;
 import com.yun.spring.annotations.Component;
 import com.yun.spring.annotations.ComponentScan;
 import com.yun.spring.annotations.Scope;
 import com.yun.spring.bean.BeanDefinition;
+import com.yun.spring.interfaces.BeanNameAware;
+import com.yun.spring.interfaces.BeanPostProcessor;
+import com.yun.spring.interfaces.InitializingBean;
 
 import java.io.File;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -18,8 +25,10 @@ public class YunApplicationContext {
     private Class configClass;
     // 单例池
     private ConcurrentHashMap<String, Object> singletonObjects = new ConcurrentHashMap<>();
-
+    // 对bean的描述
     private ConcurrentHashMap<String, BeanDefinition> beanDefinitionMap = new ConcurrentHashMap<>();
+    // 后置处理器
+    private List<BeanPostProcessor> beanPostProcessorList = new ArrayList<>();
 
 
     public YunApplicationContext(Class configClass){
@@ -32,7 +41,7 @@ public class YunApplicationContext {
             BeanDefinition beanDefinition = entry.getValue();
             // 如果是单例，则放入单例池
             if ("singleton".equals(beanDefinition.getScope())) {
-                Object bean = createBean(beanDefinition);
+                Object bean = createBean(beanName, beanDefinition);
                 singletonObjects.put(beanName, bean);
             }
         }
@@ -43,10 +52,34 @@ public class YunApplicationContext {
      * @param beanDefinition
      * @return
      */
-    private Object createBean(BeanDefinition beanDefinition) {
+    private Object createBean(String beanName, BeanDefinition beanDefinition) {
         Class clazz = beanDefinition.getClazz();
         try {
             Object instance = clazz.getDeclaredConstructor().newInstance();
+            // 依赖注入
+            for (Field declaredField : clazz.getDeclaredFields()) {
+                if (declaredField.isAnnotationPresent(Autowired.class)) {
+                    Object bean = getBean(declaredField.getName());
+                    declaredField.setAccessible(true);
+                    declaredField.set(instance, bean);
+                }
+            }
+            // Aware回调
+            if (instance instanceof BeanNameAware) {
+                ((BeanNameAware)instance).setBeanName(beanName);
+            }
+            // 初始化前对bean的修改
+            for (BeanPostProcessor beanPostProcessor : beanPostProcessorList) {
+                instance = beanPostProcessor.postProcessorBeforeInitializing(instance, beanName);
+            }
+            // 初始化
+            if (instance instanceof InitializingBean) {
+                ((InitializingBean)instance).afterPropertiesSet();
+            }
+            // 初始化后对bean的修改
+            for (BeanPostProcessor beanPostProcessor : beanPostProcessorList) {
+                instance = beanPostProcessor.postProcessorAfterInitializing(instance, beanName);
+            }
             return instance;
         } catch (InstantiationException e) {
             e.printStackTrace();
@@ -108,6 +141,22 @@ public class YunApplicationContext {
                     Class clazz = classLoader.loadClass(className);
                     // 判断当前文件是否有@Component
                     if (clazz.isAnnotationPresent(Component.class)) {
+                        // 把bean存入beanPostProcessorList，在初始化前后使用
+                        if (BeanPostProcessor.class.isAssignableFrom(clazz)) {
+                            try {
+                                BeanPostProcessor instance = (BeanPostProcessor) clazz.getDeclaredConstructor().newInstance();
+                                beanPostProcessorList.add(instance);
+                            } catch (InstantiationException e) {
+                                e.printStackTrace();
+                            } catch (IllegalAccessException e) {
+                                e.printStackTrace();
+                            } catch (InvocationTargetException e) {
+                                e.printStackTrace();
+                            } catch (NoSuchMethodException e) {
+                                e.printStackTrace();
+                            }
+                        }
+
                         // 取出@Component的内容
                         Component componentAnnotation = (Component)clazz.getDeclaredAnnotation(Component.class);
                         String beanName = componentAnnotation.value();
@@ -143,7 +192,7 @@ public class YunApplicationContext {
                 return singletonObjects.get(beanName);
             } else {
                 // 返回一个新的bean
-                return createBean(beanDefinition);
+                return createBean(beanName, beanDefinition);
             }
         } else {
             throw new RuntimeException("not Bean");
