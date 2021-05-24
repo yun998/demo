@@ -141,6 +141,7 @@ public class YunApplicationContext {
                     Class clazz = classLoader.loadClass(className);
                     // 判断当前文件是否有@Component
                     if (clazz.isAnnotationPresent(Component.class)) {
+
                         // 把bean存入beanPostProcessorList，在初始化前后使用
                         if (BeanPostProcessor.class.isAssignableFrom(clazz)) {
                             try {
@@ -160,6 +161,17 @@ public class YunApplicationContext {
                         // 取出@Component的内容
                         Component componentAnnotation = (Component)clazz.getDeclaredAnnotation(Component.class);
                         String beanName = componentAnnotation.value();
+
+                        if ("".equals(beanName)){
+                            beanName = className.substring(className.lastIndexOf(".") + 1);
+                            char[] chars = beanName.toCharArray();
+                            if (chars[0] >= 'A' && chars[0] <= 'Z'){
+                                chars[0] += 32;
+                                beanName = String.valueOf(chars);
+                            }
+                        }
+
+                        if(beanDefinitionMap.containsKey(beanName)){throw new RuntimeException("BeanName重复");}
 
                         BeanDefinition beanDefinition = new BeanDefinition();
                         beanDefinition.setClazz(clazz);

@@ -7,7 +7,7 @@ import com.yun.spring.service.UserService;
 public class Test {
     public static void main(String[] args) {
         YunApplicationContext yun = new YunApplicationContext(ApplicationConfig.class);
-        UserService userService = (UserService)yun.getBean("userService");
+        UserService userService = (UserService)yun.getBean("userServiceImpl");
         userService.test();
     }
 }
